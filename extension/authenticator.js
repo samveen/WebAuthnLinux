@@ -17,7 +17,7 @@ const initAuthenticator = async () => {
         if (data) {
             // Save mode - return a promise or handle async
             return new Promise((resolve, reject) => {
-                chrome.storage.local.set({ 'virtual_credentials': data }, () => {
+                chrome.storage.local.set({ 'system_credentials': data }, () => {
                     console.log('Credentials saved to local storage');
                     resolve(data);
                 });
@@ -26,7 +26,41 @@ const initAuthenticator = async () => {
             return this.storage;
         }
     };
-    const result = await chrome.storage.local.get(['system_credentials', 'option@debugLogging']);
+    const result = await chrome.storage.local.get(['system_credentials', 'option@debugLogging', 'extension_salt', 'extension_ca_key']);
+
+    // Manage extension salt
+    if (result.extension_salt) {
+        authenticator.masterkeysalt = window.authnTools.base64urlToUint8Array(result.extension_salt);
+        console.log('[Auth] Loaded unique extension identity.');
+    } else {
+        console.log('[Auth] Generating new unique extension salt...');
+        const salt = window.crypto.getRandomValues(new Uint8Array(16));
+        authenticator.masterkeysalt = salt;
+        await new Promise(r => chrome.storage.local.set({ 'extension_salt': window.authnTools.uint8ArrayToBase64url(salt) }, r));
+    }
+
+    // Manage extension CA key
+    if (result.extension_ca_key) {
+        authenticator.setCaPrivateKey(JSON.parse(result.extension_ca_key));
+    } else {
+        // Generate a new P-256 key for attestation
+        console.log('[Auth] Generating unique CA key for this installation...');
+        const keyPair = await window.crypto.subtle.generateKey(
+            { name: 'ECDSA', namedCurve: 'P-256' },
+            true,
+            ['sign']
+        );
+        const jwk = await window.crypto.subtle.exportKey('jwk', keyPair.privateKey);
+        authenticator.setCaPrivateKey(jwk);
+        await new Promise(r => chrome.storage.local.set({ 'extension_ca_key': JSON.stringify(jwk) }, r));
+    }
+
+    // Set legacy salt fallback (The original bridge used 16 zeros by default in authenticator.js override)
+    const legacySalt = new Uint8Array(16);
+    // Legacy: authenticator.js:175 used new Uint8Array(16)
+    authenticator.legacyMasterkeySalt = legacySalt.buffer;
+    console.log('[Auth] Legacy salt fallback initialized (16 zeros).');
+
     if (result.system_credentials) authenticator.storage = result.system_credentials;
     authenticator.debugLogging = result['option@debugLogging'] === true;
     return authenticator;
@@ -109,7 +143,7 @@ const handleMessage = async (request, sender, sendResponse) => {
                 // UNLESS we explicit save here.
 
                 debugLog('[Auth] Manually ensuring storage save...');
-                await new Promise(r => chrome.storage.local.set({ 'virtual_credentials': deviceInstance.storage }, r));
+                await new Promise(r => chrome.storage.local.set({ 'system_credentials': deviceInstance.storage }, r));
                 debugLog('[Auth] Manual save complete.');
             } else if (request.type === 'get' || request.authn === 'get') {
                 debugLog('[Auth] Get Options (Raw):', request.options);
@@ -172,7 +206,8 @@ const handleMessage = async (request, sender, sendResponse) => {
             const masterKey = await getMasterKeyFromNativeHost();
 
             console.log('[Auth] Keys obtained.');
-            deviceInstance.setMasterKey(masterKey, new Uint8Array(16));
+            // deviceInstance.masterkeysalt is already set in initAuthenticator or from storage
+            deviceInstance.setMasterKey(masterKey);
 
             newBtn.style.display = "none";
             statusDiv.textContent = "Processing...";

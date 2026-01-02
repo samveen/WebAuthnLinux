@@ -29,22 +29,23 @@ window.AuthnDevice = (function (localURL) {
 		this.handleStorage = false;
 		this.askmasterkey = false;
 
-		// AAGUID based on ASCII chars
+		// Default AAGUID
 		let guid = 'linux-authn-v1.0'; // 16 chars
 		guid = window.authnTools.stringToBase64url(guid);
-		let aaguid = window.authnTools.base64urlToUint8Array(guid);
+		this.aaguid = window.authnTools.base64urlToUint8Array(guid);
 
-		//// AAGUID based on GUID string
-		//let guid = '76697274-7561-6c2d-6175-74686e2d7631';
-		//let aaguid = window.authnTools.hexToUint8Array(guid.replace(/-/g,''));
-
-		// Save authenticators aaguid
-		this.aaguid = aaguid;
+		// Initialize placeholders
+		this.masterkey = null;
+		this.masterkeysalt = new Uint8Array(16).buffer;
+		this.legacyMasterkeySalt = null;
+		this.caPrivateKeyJwk = null;
+		this.caPrivateKey = null;
+		this.legacyDerivedKey = null;
 
 		// Counter timer
 		this.counterIncreaseEveryMs = 250;
 
-		// Testing parameters
+		// Testing parameters (restored after accidential removal)
 		this.testing = {
 			challenge: false,
 			userId: false,
@@ -57,16 +58,6 @@ window.AuthnDevice = (function (localURL) {
 			forceResidentKey: false,
 			aaguid: false
 		};
-
-		// Default master key seed
-		let default_masterkey = 'WebAuthnLinux - Biometric Authenticator';
-		let default_salt = (() => {
-			let salt = new Uint8Array(16);
-			for (let i = 16 - 1; i >= 0; i--) salt[i] = i;
-			return salt.buffer;
-		})();
-		// This key is used to wrap the authenticator's data and store them at a server
-		this.setMasterKey(default_masterkey, default_salt);
 	};
 
 	// Set testing parameter
@@ -89,13 +80,18 @@ window.AuthnDevice = (function (localURL) {
 	// Set an other master key
 	AuthnDevice.prototype.setMasterKey = function (masterkey, salt = null, iterations = 100000) {
 		this.masterkey = masterkey;
+		this.lastMasterkey = masterkey; // Keep it for legacy derivations if needed
 		if (salt) this.masterkeysalt = salt;
 		this.derivedKey = null;
+		this.legacyDerivedKey = null;
 		this.masterkeyIterations = iterations;
 	};
 	// Clear master key
 	AuthnDevice.prototype.clearMasterKey = function () {
 		this.masterkey = null;
+		// this.lastMasterkey remains if derivedKey is needed later?
+		// Actually, PBKDF2 needs the password. If we clear it, we can't derive it again.
+		// But _getDerivedKey is called when the masterKey is set.
 	};
 	// Always Ask Master Key
 	AuthnDevice.prototype.alwaysAskMasterKey = function (value) {
@@ -106,6 +102,12 @@ window.AuthnDevice = (function (localURL) {
 			this.askmasterkey = true;
 			this.clearMasterKey();
 		}
+	};
+
+	// Set CA Private Key for Attestation
+	AuthnDevice.prototype.setCaPrivateKey = function (jwk) {
+		this.caPrivateKeyJwk = jwk;
+		this.caPrivateKey = null;
 	};
 
 
@@ -157,29 +159,34 @@ window.AuthnDevice = (function (localURL) {
 		return this.aaguid;
 	};
 
-	AuthnDevice.prototype._getDerivedKey = async function () {
-		if (!this.derivedKey) {
-			// If no master key
-			if (!this.masterkey) {
-				this.masterkey = prompt('Please enter your password to use the virtual authenticator', '');
-				if (!this.masterkey || this.masterkey.length < 1)
-					throw new Error('No password given');
+	AuthnDevice.prototype._getDerivedKey = async function (useLegacySalt = false) {
+		if (useLegacySalt && !this.legacyMasterkeySalt) return null;
+
+		let targetDerivedKey = useLegacySalt ? 'legacyDerivedKey' : 'derivedKey';
+		let targetSalt = useLegacySalt ? this.legacyMasterkeySalt : this.masterkeysalt;
+
+		if (!this[targetDerivedKey]) {
+			if (!this.masterkey && !this.lastMasterkey) {
+				throw new Error('No master key provided');
 			}
+
+			// If we cleared masterkey but need it for legacy, we use lastMasterkey
+			let keyMaterial = this.masterkey || this.lastMasterkey;
+
 			// Import given master key
 			let masterkey = await window.crypto.subtle.importKey(
 				'raw',
-				new TextEncoder().encode(this.masterkey),
+				new TextEncoder().encode(keyMaterial),
 				'PBKDF2',
 				false,
 				['deriveBits', 'deriveKey']
 			);
-			// Clear saved master key
-			this.masterkey = null;
+
 			// Derive key from master key
-			this.derivedKey = await window.crypto.subtle.deriveKey(
+			this[targetDerivedKey] = await window.crypto.subtle.deriveKey(
 				{
 					'name': 'PBKDF2',
-					salt: this.masterkeysalt,
+					salt: targetSalt,
 					'iterations': this.masterkeyIterations,
 					'hash': 'SHA-256'
 				},
@@ -192,10 +199,10 @@ window.AuthnDevice = (function (localURL) {
 				['encrypt', 'decrypt']
 			);
 		}
-		return this.derivedKey;
+		return this[targetDerivedKey];
 	};
 
-	// The provided info will be encrypted using the master key and the 
+	// The provided info will be encrypted using the master key and the
 	AuthnDevice.prototype._generateKeyId = async function () {
 		// Prepare data for encryption
 		let data = {
@@ -213,7 +220,6 @@ window.AuthnDevice = (function (localURL) {
 		data = new Uint8Array(data.split('').map(function (c) { return c.charCodeAt(0); }));
 		// Prepare an IV
 		let iv = window.crypto.getRandomValues(new Uint8Array(12));
-		((s) => { s = window.atob(s + '+'); for (let i = 0; i < s.length; i++) iv[i] = s[i].charCodeAt(0) })('Samveen'); // TODO: This is not needed :P, it can be removed
 		// You are going to use AES authenticated encryption
 		let key = await this._getDerivedKey();
 		let cipher = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv: iv }, key, data);
@@ -232,8 +238,30 @@ window.AuthnDevice = (function (localURL) {
 		let iv = cipher.slice(0, 12).buffer;
 		// Decode AES
 		let key = await this._getDerivedKey();
+		let message = null;
 		try {
-			let message = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, cipher.slice(12, cipher.length).buffer);
+			message = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, cipher.slice(12, cipher.length).buffer);
+		} catch (e) {
+			// Try legacy salt if decryption fails
+			if (this.legacyMasterkeySalt) {
+				console.log('[Auth] Decryption failed, trying legacy salt fallback...');
+				try {
+					let legacyKey = await this._getDerivedKey(true);
+					if (legacyKey) {
+						message = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, legacyKey, cipher.slice(12, cipher.length).buffer);
+					}
+				} catch (ee) {
+					console.log('[Auth] Legacy salt fallback also failed.');
+				}
+			}
+
+			if (!message) {
+				console.log(e);
+				return false;
+			}
+		}
+
+		try {
 			// Parse bytes to JSON
 			message = Array.from(new Uint8Array(message)).map(function (c) { return String.fromCharCode(c); }).join('');
 			data = JSON.parse(message);
@@ -541,17 +569,15 @@ window.AuthnDevice = (function (localURL) {
 			// If direct generate certificate
 			if (options.publicKey.attestation == 'direct') {
 
-				// CA private key
-				let caPrivateKey = {
-					"crv": "P-256",
-					"d": "wNArRI8X1g4-atojTyJM-Q40bqTInVEH2ajIwFC0cV8",
-					"ext": true,
-					"key_ops": ["sign"],
-					"kty": "EC",
-					"x": "T88rAHd-XlvAV_mNmq0R-yQfQs0TVPyMK-lNhE6psnQ",
-					"y": "Qbmy_EVaC6FQWmpYqZyVuMzNymji6o2vXOOX2bMjPmI"
+				if (!this.caPrivateKey && this.caPrivateKeyJwk) {
+					this.caPrivateKey = await window.crypto.subtle.importKey("jwk", this.caPrivateKeyJwk, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
 				}
-				caPrivateKey = await window.crypto.subtle.importKey("jwk", caPrivateKey, { name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign']);
+
+				if (!this.caPrivateKey) {
+					throw new Error('CA Private Key is required for direct attestation but not set.');
+				}
+
+				let caPrivateKey = this.caPrivateKey;
 
 				// Generate Certificate
 				let cert = await ans1.generateCertificate({
