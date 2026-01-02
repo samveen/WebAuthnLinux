@@ -1,8 +1,8 @@
 {
 	"name": "WebAuthnLinux",
 	"description": "Biometric WebAuthn Credentials for Linux",
-	"author": "Grammatopoulos Athanasios Vasileios (GramThanos) with modifications by Samveen",
-	"version": "0.6",
+	"author": "Samveen, building on the work of Grammatopoulos Athanasios Vasileios (GramThanos)",
+	"version": "0.9.9",
 	"icons": {
 		"19": "icons/icon.png",
 		"48": "icons/icon_48.png",

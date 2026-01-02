@@ -4,7 +4,7 @@
  * Original: Grammatopoulos Athanasios Vasileios (GramThanos)
  * Modifications by Samveen
  */
-const BUILD_VERSION = "1.0.0-Alpha";
+const BUILD_VERSION = "0.9.9";
 console.log(`[Auth] Loaded WebAuthnLinux. Version: ${BUILD_VERSION}`);
 
 // Polyfill
@@ -181,7 +181,8 @@ const handleMessage = async (request, sender, sendResponse) => {
             }
         } catch (e) {
             console.error(e);
-            document.getElementById('status').innerHTML = `<span class="error">Error: ${e.message}</span>`;
+            statusDiv.textContent = `Error: ${e.message}`;
+            statusDiv.classList.add('error');
             chrome.runtime.sendMessage({ id: request.id, status: 'error', error: e.message });
         }
     };

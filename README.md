@@ -28,7 +28,7 @@ This allows the extension to leverage your laptop's built-in fingerprint reader 
 3. **Install Native Host**:
    ```bash
    cd native
-   ./install.sh [YOUR_CHROME_EXTENSION_ID]
+   ./install.sh
    ```
 
 For detailed, browser-specific instructions, see [LINUX_SETUP.md](LINUX_SETUP.md).

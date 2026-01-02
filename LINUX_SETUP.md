@@ -38,26 +38,32 @@ The native host use `fprintd` to verify your identity.
 
 ---
 
-## 3. Install Native Host
+### Installation
+Navigate to the `native/` directory and run the installation script with your preferred options.
 
-Navigate to the `native/` directory and run the installation script.
-
-### Sideloading (Development)
-If you are sideloading in Chrome/Chromium, pass your Extension ID to the script:
+#### For Google Chrome / Chromium
+Pass your Extension ID to the script:
 ```bash
 cd native
-./install.sh <YOUR_EXTENSION_ID>
+./install.sh --chrome <YOUR_EXTENSION_ID>
 ```
 
-### Official Store Version (Production)
-Once published, the official ID will be used:
+#### For Firefox
 ```bash
-./install.sh <OFFICIAL_STORE_ID>
+cd native
+./install.sh --firefox
+```
+
+#### Interactive Mode
+If you run the script without any arguments, it will interactively ask which browsers to install for:
+```bash
+./install.sh
 ```
 
 ### What does this script do?
 - Creates a manifest file `io.github.samveen.webauthnlinux.json`.
-- Automatically populates it with the correct path to `webauthnlinux_host.py`.
+- Copies the host script to `~/.local/bin/webauthnlinux_host.py`.
+- Automatically populates the manifest with the correct path to the new location.
 - Registers it in `~/.mozilla/native-messaging-hosts/` (Firefox).
 - Registers it in `~/.config/google-chrome/NativeMessagingHosts/` (Chrome).
 - Registers it in `~/.config/chromium/NativeMessagingHosts/` (Chromium).
@@ -83,6 +89,6 @@ You can run the included check script to verify your environment:
 ## Troubleshooting
 
 - **Native Host Errors**: Check the browser's background page console (Chrome: `chrome://extensions` -> background page link).
-- **Permissions**: Ensure `webauthnlinux_host.py` is executable. The `install.sh` script should handle this.
 - **Chrome ID Mismatch**: If you reload the extension and the ID changes, you MUST re-run `install.sh` with the new ID.
+- **Permissions**: Ensure `webauthnlinux_host.py` is executable. The `install.sh` script should handle this.
 - **fprintd-verify**: If the script fails to verify, try running `fprintd-verify` manually in a terminal to see if your hardware is responding.
