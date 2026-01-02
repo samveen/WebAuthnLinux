@@ -34,7 +34,7 @@ The native host use `fprintd` to verify your identity.
 1. Open Firefox and navigate to `about:debugging`.
 2. Click on **This Firefox**.
 3. Click **Load Temporary Add-on** and select `manifest.json` from the `extension/` folder.
-   *(Note: Temporary add-ons are removed when Firefox restarts. For permanent use, the Extension ID `webdevauthn-linux@samveen.github.io` is pre-registered in the installer.)*
+   *(Note: Temporary add-ons are removed when Firefox restarts. For permanent use, the Extension ID `webauthnlinux@samveen.github.io` is pre-registered in the installer.)*
 
 ---
 
@@ -56,8 +56,8 @@ Once published, the official ID will be used:
 ```
 
 ### What does this script do?
-- Creates a manifest file `io.github.samveen.webdevauthn.json`.
-- Automatically populates it with the correct path to `webdevauthn_host.py`.
+- Creates a manifest file `io.github.samveen.webauthnlinux.json`.
+- Automatically populates it with the correct path to `webauthnlinux_host.py`.
 - Registers it in `~/.mozilla/native-messaging-hosts/` (Firefox).
 - Registers it in `~/.config/google-chrome/NativeMessagingHosts/` (Chrome).
 - Registers it in `~/.config/chromium/NativeMessagingHosts/` (Chromium).
@@ -83,6 +83,6 @@ You can run the included check script to verify your environment:
 ## Troubleshooting
 
 - **Native Host Errors**: Check the browser's background page console (Chrome: `chrome://extensions` -> background page link).
-- **Permissions**: Ensure `webdevauthn_host.py` is executable. The `install.sh` script should handle this.
+- **Permissions**: Ensure `webauthnlinux_host.py` is executable. The `install.sh` script should handle this.
 - **Chrome ID Mismatch**: If you reload the extension and the ID changes, you MUST re-run `install.sh` with the new ID.
 - **fprintd-verify**: If the script fails to verify, try running `fprintd-verify` manually in a terminal to see if your hardware is responding.

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "=== Linux Fingerprint & FIDO2 Verification Tool ==="
+echo "=== WebAuthnLinux Fingerprint & FIDO2 Verification Tool ==="
 
 # 1. Check for fprintd
 echo -n "[1] Checking fprintd... "

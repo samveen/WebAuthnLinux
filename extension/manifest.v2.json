@@ -1,6 +1,6 @@
 {
 	"name": "WebAuthnLinux",
-	"description": "Debug FIDO2 requests and responses",
+	"description": "Biometric WebAuthn Credentials for Linux",
 	"author": "Grammatopoulos Athanasios Vasileios (GramThanos) with modifications by Samveen",
 	"version": "0.6",
 	"icons": {

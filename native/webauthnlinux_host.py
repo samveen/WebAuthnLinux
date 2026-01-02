@@ -9,7 +9,7 @@ import hashlib
 import base64
 
 # Configuration
-CONFIG_DIR = os.path.expanduser("~/.config/webdevauthn")
+CONFIG_DIR = os.path.expanduser("~/.config/webauthnlinux")
 KEY_FILE = os.path.join(CONFIG_DIR, "master.key")
 
 def get_message():

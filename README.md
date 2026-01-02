@@ -36,17 +36,17 @@ For detailed, browser-specific instructions, see [LINUX_SETUP.md](LINUX_SETUP.md
 ### Project Structure
 
 - **`extension/`**: The Web Extension source code (Manifest V3). Includes logic for triggering native messaging and handling biometric responses.
-- **`native/`**: Python-based Native Messaging Host (`webdevauthn_host.py`) and multi-browser installer (`install.sh`).
+- **`native/`**: Python-based Native Messaging Host (`webauthnlinux_host.py`) and multi-browser installer (`install.sh`).
 
 ___
 
 ### Contact & Hosting
 
-This derivative work is hosted at [https://github.com/samveen/WebDevAuthn](https://github.com/samveen/WebDevAuthn)
+This derivative work is hosted at [https://github.com/samveen/WebAuthnLinux](https://github.com/samveen/WebAuthnLinux)
 
 The original work can be found by navigating to this fork's parent.
 
-Modified by [![Samveen](https://avatars.githubusercontent.com/u/1241434?v=4&s=42)](https://github.com/samveen), largely thanks to [AntiGravity](https://antigravity.google)
+Modified by [Samveen](https://github.com/samveen), largely thanks to [AntiGravity](https://antigravity.google)
 
 The Derivative Work is Copyright (c) 2026 Onwards, Projects by Samveen.
 

@@ -1,12 +1,11 @@
 /*
- * WebDevAuthn
- * Fast Identity Online Development
+ * WebAuthnLinux (WebDevAuthn Derivative)
+ * Fast Fingerprint Based Identity Verification On Linux
  *
  * Script: WebAuthn Authenticator
  *
- * GramThanos
+ * Original Work by GramThanos
  * Modifications by Samveen
- *
  */
 
 // Virtual/Software FIDO2/WebAuthn Authenticator Device

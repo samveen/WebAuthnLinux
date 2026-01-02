@@ -1,10 +1,10 @@
 {
-  "name": "io.github.samveen.webdevauthn",
+  "name": "io.github.samveen.webauthnlinux",
   "description": "WebAuthnLinux Native Host for Fingerprint Integration",
-  "path": "/path/to/webdevauthn_host.py",
+  "path": "/path/to/webauthnlinux_host.py",
   "type": "stdio",
   "allowed_extensions": [
-    "webdevauthn-linux@samveen.github.io"
+    "webauthnlinux@samveen.github.io"
   ],
   "allowed_origins": [
     "chrome-extension://ID/"

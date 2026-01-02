@@ -3,7 +3,7 @@
 	"description": "Biometric WebAuthn Credentials for Linux",
 	"author": "Grammatopoulos Athanasios Vasileios (GramThanos) with modifications by Samveen",
 	"version": "1.0.0-Alpha",
-	"homepage_url": "https://github.com/samveen/WebDevAuthn",
+	"homepage_url": "https://github.com/samveen/WebAuthnLinux",
 	"icons": {
 		"19": "icons/icon.png",
 		"48": "icons/icon_48.png",
@@ -59,7 +59,7 @@
 	},
 	"browser_specific_settings": {
 		"gecko": {
-			"id": "webdevauthn-linux@samveen.github.io"
+			"id": "webauthnlinux@samveen.github.io"
 		}
 	}
 }

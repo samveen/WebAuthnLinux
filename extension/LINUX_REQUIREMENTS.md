@@ -1,6 +1,6 @@
-# WebDevAuthn Extension - Linux Requirements
+# WebAuthnLinux Extension - Linux Requirements
 
-To use the WebDevAuthn extension with local fingerprint storage (Platform Authenticator) on Linux, you must satisfy the following requirements:
+To use the WebAuthnLinux extension with local fingerprint storage (Platform Authenticator) on Linux, you must satisfy the following requirements:
 
 ## 1. System Requirements
 - **WebAuthn/FIDO2 Hardware Support**: A machine with a supported fingerprint reader or a connected FIDO2 security key.

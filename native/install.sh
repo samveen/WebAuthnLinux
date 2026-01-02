@@ -1,13 +1,13 @@
 #!/bin/bash
 set -e
 
-HOST_NAME="io.github.samveen.webdevauthn"
+HOST_NAME="io.github.samveen.webauthnlinux"
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-TARGET_HOST_PATH="$SCRIPT_DIR/webdevauthn_host.py"
-MANIFEST_PATH="$SCRIPT_DIR/webdevauthn_host.json"
+TARGET_HOST_PATH="$SCRIPT_DIR/webauthnlinux_host.py"
+MANIFEST_PATH="$SCRIPT_DIR/webauthnlinux_host.json"
 
 # Extension IDs
-FIREFOX_ID="webdevauthn-linux@samveen.github.io"
+FIREFOX_ID="webauthnlinux@samveen.github.io"
 CHROME_ID="$1"
 
 if [ -z "$CHROME_ID" ]; then

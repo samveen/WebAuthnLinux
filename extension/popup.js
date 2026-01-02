@@ -1,8 +1,8 @@
 /*
- * WebDevAuthn
- * Script: WebAuthn Development
+ * WebAuthnLinux (WebDevAuthn Derivative)
+ * Script: WebAuthn Settings
  * 
- * GramThanos
+ * Original: GramThanos
  * Modifications by Samveen
  */
 

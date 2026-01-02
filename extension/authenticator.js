@@ -77,13 +77,13 @@ const debugLog = (message, ...args) => {
 const getMasterKeyFromNativeHost = async () => {
     const statusDiv = document.getElementById('status');
     statusDiv.textContent = "Connecting to System Fingerprint Service...";
-    console.log('[Auth] Connecting to Fingerprint Service: io.github.samveen.webdevauthn');
+    console.log('[Auth] Connecting to Fingerprint Service: io.github.samveen.webauthnlinux');
 
     return new Promise((resolve, reject) => {
         try {
-            // "webdevauthn-linux@samveen.github.io" must be allowed in the host manifest
-            // Host name defined in install.sh is "io.github.samveen.webdevauthn"
-            const hostName = "io.github.samveen.webdevauthn";
+            // "webauthnlinux@samveen.github.io" must be allowed in the host manifest
+            // Host name defined in install.sh is "io.github.samveen.webauthnlinux"
+            const hostName = "io.github.samveen.webauthnlinux";
 
             // Send unlock command
             chrome.runtime.sendNativeMessage(hostName, { type: "unlock" }, (response) => {
