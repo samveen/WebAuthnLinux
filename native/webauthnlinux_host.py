@@ -33,7 +33,7 @@ def ensure_master_key():
     """Ensure the master key exists securely."""
     if not os.path.exists(CONFIG_DIR):
         os.makedirs(CONFIG_DIR, mode=0o700)
-    
+
     if os.path.exists(KEY_FILE):
         with open(KEY_FILE, "rb") as f:
             return f.read().hex()
@@ -51,22 +51,22 @@ def verify_fingerprint():
         # We use 'fprintd-verify' which interactively asks for a swipe.
         # Ideally, we should check for specific user output.
         # For simplicity, we assume exit code 0 is success.
-        
+
         # NOTE: fprintd-verify usually writes to stdout/stderr.
         # Since we are communicating over stdin/stdout with the browser,
         # we MUST capture or redirect subprocess IO to avoid corrupting the stream.
         result = subprocess.run(
-            ['fprintd-verify'], 
-            capture_output=True, 
+            ['/usr/bin/fprintd-verify', '-f', 'any'],
+            capture_output=True,
             text=True
         )
-        
+
         # Check for success string usually present in fprintd output
         if result.returncode == 0 and ("verify-match" in result.stdout or "verify-match" in result.stderr):
             return True, "Verified"
         else:
             return False, f"Failed: {result.stderr or result.stdout}"
-            
+
     except FileNotFoundError:
         return False, "fprintd-verify not found. Install fprintd?"
     except Exception as e:
@@ -78,25 +78,25 @@ def main():
             message = get_message()
             if not message:
                 break
-            
+
             msg_type = message.get('type')
-            
+
             if msg_type == 'unlock':
                 # Trigger Fingerprint
                 success, reason = verify_fingerprint()
-                
+
                 if success:
                     key = ensure_master_key()
                     send_message({"status": "success", "key": key})
                 else:
                     send_message({"status": "error", "message": reason})
-                    
+
             elif msg_type == 'ping':
                 send_message({"status": "pong", "version": "1.0.0"})
-                
+
             else:
                 send_message({"status": "error", "message": "Unknown command"})
-                
+
         except Exception as e:
             send_message({"status": "error", "message": str(e)})
 

@@ -138,6 +138,31 @@
 			text-decoration: underline;
 		}
 
+		.actions {
+			margin-top: 18px;
+		}
+
+		.action-button {
+			width: 100%;
+			padding: 10px 12px;
+			font-size: 0.95rem;
+			font-weight: 600;
+			background: #007bff;
+			color: white;
+			border: none;
+			border-radius: 6px;
+			cursor: pointer;
+			transition: background-color .2s;
+		}
+
+		.action-button:hover {
+			background: #005ecb;
+		}
+
+		.action-button:active {
+			background: #004ea8;
+		}
+
 		.status-msg {
 			margin-top: 10px;
 			padding: 8px;
@@ -186,6 +211,12 @@
 				<span class="slider"></span>
 			</label>
 		</div>
+	</div>
+
+	<div class="actions">
+		<button id="manageCredentials" class="action-button">
+			Manage Credentials
+		</button>
 	</div>
 
 	<div id="status" class="status-msg">Changes saved automatically.</div>

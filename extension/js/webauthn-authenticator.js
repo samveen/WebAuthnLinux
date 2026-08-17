@@ -29,9 +29,13 @@ window.AuthnDevice = (function (localURL) {
 		this.askmasterkey = false;
 
 		// Default AAGUID
-		let guid = 'linux-authn-v1.0'; // 16 chars
-		guid = window.authnTools.stringToBase64url(guid);
-		this.aaguid = window.authnTools.base64urlToUint8Array(guid);
+		// 16-byte opaque authenticator identifier
+		this.aaguid = new Uint8Array([
+			0x8d, 0x4f, 0x3a, 0x21,
+			0x72, 0x91, 0x4c, 0x55,
+			0xa8, 0x93, 0x7e, 0x1b,
+			0x62, 0x44, 0xf0, 0x9c
+		]);
 
 		// Initialize placeholders
 		this.masterkey = null;
@@ -356,45 +360,113 @@ window.AuthnDevice = (function (localURL) {
 	AuthnDevice.prototype._saveResidentKey = async function (host) {
 		// Get wrapped key and generate hash as id
 		let wrappedKey = this.credential_id;
-		// Resident keys use a has of the credential id as a credential id
+		// Resident keys use a hash of the credential id as a credential id
 		this.credential_id = await window.crypto.subtle.digest('SHA-256', this.credential_id);
 		// Save key info
-		if (this.handleStorage) this.storage = this.handleStorage();
+		// Load existing storage
+		if (this.handleStorage) this.storage = await this.handleStorage();
 		this.storage.push({
 			host: host,
 			keyid: window.authnTools.uint8ArrayToBase64url(new Uint8Array(this.credential_id)),
 			masterKeySalt: window.authnTools.uint8ArrayToBase64url(this.masterkeysalt),
-			wrappedKey: window.authnTools.uint8ArrayToBase64url(new Uint8Array(wrappedKey))
+			wrappedKey: window.authnTools.uint8ArrayToBase64url(new Uint8Array(wrappedKey)),
+
+			userHandle: this.user_handle
+				? window.authnTools.uint8ArrayToBase64url(
+				new Uint8Array(this.user_handle)
+			)
+			: null,
+
+			// Credential management metadata
+			created: Date.now(),
+			lastUsed: null,
+			signCount: 0
+
 		});
-		if (this.handleStorage) this.handleStorage(this.storage);
+		// Persist
+		if (this.handleStorage) await this.handleStorage(this.storage);
 	};
 
 	AuthnDevice.prototype._cred_init_with_ResidentKey = async function (rp_id, user_handle = null, key_id = null) {
-		if (this.handleStorage) this.storage = this.handleStorage();
-		// Search storage
+		if (this.handleStorage) this.storage = await this.handleStorage();
+
+		// Normalise key_id for storage comparison
+		if (key_id instanceof ArrayBuffer) {
+			key_id = window.authnTools.uint8ArrayToBase64url(new Uint8Array(key_id));
+		}
+
+		console.log("RESIDENT LOOKUP:", {
+			rp_id,
+			key_id,
+			storageCount: this.storage.length
+		});
+
+				// Search storage
 		//console.log('Storage', this.storage);
 		for (let i = this.storage.length - 1; i >= 0; i--) {
 			//console.log('Checking', this.storage[i].host, rp_id, this.storage[i].keyid, key_id);
+			console.log("Checking:", {
+				index: i,
+				host: this.storage[i].host,
+				keyid: this.storage[i].keyid,
+				matchHost: this.storage[i].host === rp_id,
+				matchKey: key_id === null || this.storage[i].keyid === key_id
+			});
 			// If key found in storage
 			if (this.storage[i].host === rp_id && (key_id === null || this.storage[i].keyid === key_id)) {
+				console.log("RESIDENT KEY MATCH FOUND:", this.storage[i]);
 				let credentials = this.storage[i];
 				//console.log('Webpage match', credentials);
+
+				this.currentCredential = credentials;
+
+				// Update last used time
+				credentials.lastUsed = Date.now();
+
+				// Ensure signCount exists for old credentials
+				if (!("signCount" in credentials)) {
+					credentials.signCount = 0;
+				}
+
+				// Save updated metadata
+				if (this.handleStorage) {
+					await this.handleStorage(this.storage);
+				}
+
 				let wrappedKey = window.authnTools.base64urlToUint8Array(credentials.wrappedKey);
 				// Restore key salt
 				this.masterkeysalt = window.authnTools.base64urlToUint8Array(credentials.masterKeySalt);
 				// Init credentials
 				let r = await this._cred_init(rp_id, user_handle, wrappedKey);
 				// Resident keys use a different credential id than the original credential id
-				if (r) {
-					if (key_id === null) {
-						//key_id = window.authnTools.base64urlToUint8Array(credentials.keyid);
-						key_id = new Uint8Array(await window.crypto.subtle.digest('SHA-256', wrappedKey));
-					}
-					this.credential_id = key_id;
+			if (r) {
+				if (key_id === null) {
+					//key_id = window.authnTools.base64urlToUint8Array(credentials.keyid);
+					key_id = new Uint8Array(await window.crypto.subtle.digest('SHA-256', wrappedKey));
 				}
-				return r;
+				console.log("KEY ID BEFORE ASSIGN:", {
+					type: Object.prototype.toString.call(key_id),
+							length: key_id?.byteLength || key_id?.length,
+							value: key_id
+				});
+
+				if (typeof key_id === "string") {
+					this.credential_id = window.authnTools.base64urlToUint8Array(key_id);
+				} else {
+					this.credential_id = new Uint8Array(key_id);
+				}
+
+				console.log("RESIDENT KEY INITIALISED:", {
+					credential_id:
+					window.authnTools.uint8ArrayToBase64url(
+						new Uint8Array(this.credential_id)
+					)
+				});
+			}
+			return r;
 			}
 		}
+		console.log("NO RESIDENT KEY FOUND");
 		return false;
 	};
 
@@ -413,30 +485,33 @@ window.AuthnDevice = (function (localURL) {
 	};
 
 	AuthnDevice.prototype._flags = function (flags) {
-		// Bit 0: User Present (UP) result.
-		// Bit 1: Reserved for future use (RFU1).
-		// Bit 2: User Verified (UV) result.
-		// Bit 3: Reserved for future use (RFU2).
-		// Bit 4: Reserved for future use (RFU2).
-		// Bit 5: Reserved for future use (RFU2).
-		// Bit 6: Attested credential data included (AT).
-		// Bit 7: Extension data included (ED).
+		/**
+		 * WebAuthn authenticator data flags:
+		 * Bit 0: User Present (UP)
+		 * Bit 1: Reserved for future use (RFU1)
+		 * Bit 2: User Verified (UV)
+		 * Bit 3: Backup Eligible (BE)
+		 * Bit 4: Backup State (BS)
+		 * Bit 5: Reserved for future use (RFU2)
+		 * Bit 6: Attested credential data included (AT)
+		 * Bit 7: Extension data included (ED)
+		 */
 
 		// Testing: Freeze User Verification
 		if (Number.isInteger(this.testing.freezeUserVerificationFlag)) {
-			flags['uv'] = this.testing.freezeUserVerificationFlag > 0 ? true : false;
+			flags['uv'] = this.testing.freezeUserVerificationFlag > 0;
 		}
 
-		let bits = [0, 0, 0, 0, 0, 0, 0, 0];
-		if (flags.hasOwnProperty('up') && flags['up']) bits[0] = 1;
-		if (flags.hasOwnProperty('uv') && flags['uv']) bits[2] = 1;
-		if (flags.hasOwnProperty('at') && flags['at']) bits[6] = 1;
-		if (flags.hasOwnProperty('ed') && flags['ed']) bits[7] = 1;
+		let value = 0;
 
-		// Convert to string and reverse order
-		bits = bits.map(x => x + '').reduce((x, y) => y + x, '');
+		if (flags.up) value |= (1 << 0);
+		if (flags.uv) value |= (1 << 2);
+		if (flags.be) value |= (1 << 3);
+		if (flags.bs) value |= (1 << 4);
+		if (flags.at) value |= (1 << 6);
+		if (flags.ed) value |= (1 << 7);
 
-		return parseInt(bits, 2);
+		return value;
 	};
 
 	AuthnDevice.prototype.create = async function (options, _origin) {
@@ -460,8 +535,25 @@ window.AuthnDevice = (function (localURL) {
 		if (algs.length < 1) throw new Error('Requested pubKeyCredParams does not contain supported type');
 		let keyPairAlg = algs[0].alg;
 
-		// Check if required Resident Key aka Discoverable credential
-		let requestResidentKey = (options.publicKey.authenticatorSelection && options.publicKey.authenticatorSelection.requireResidentKey === true);
+		console.log(
+			JSON.stringify(
+				options.publicKey.authenticatorSelection,
+				null,
+				2
+			)
+		);
+
+		// Check if Resident Key (Discoverable Credential) is required or preferred.
+		// Newer WebAuthn uses residentKey while older implementations use requireResidentKey.
+		let requestResidentKey = false;
+		if (options.publicKey.authenticatorSelection) {
+			let selection = options.publicKey.authenticatorSelection;
+			requestResidentKey =
+			selection.requireResidentKey === true ||
+			selection.residentKey === "required" ||
+			selection.residentKey === "preferred";
+		}
+
 		if (this.testing.forceResidentKey) requestResidentKey = true;
 
 		// Calcualte RP ID and origin's effective domain
@@ -494,8 +586,25 @@ window.AuthnDevice = (function (localURL) {
 		}
 
 		let userId = options.publicKey.user.id;
+
+		// Always work with a Uint8Array
+		if (userId instanceof ArrayBuffer) userId = new Uint8Array(userId);
+
+		console.log("REGISTER USER ID TYPE:", userId.constructor.name);
+		console.log("REGISTER USER ID LENGTH:", userId.byteLength);
+		console.log(
+			"REGISTER USER ID HEX:",
+			Array.from(userId)
+			.map(b => b.toString(16).padStart(2, "0"))
+			.join("")
+		);
+
+		// Testing override
 		if (this.testing.userId) {
 			if (this.testing.userId instanceof ArrayBuffer) {
+				userId = new Uint8Array(this.testing.userId);
+			}
+			else if (this.testing.userId instanceof Uint8Array) {
 				userId = this.testing.userId;
 			}
 			else if (typeof this.testing.userId === 'string') {
@@ -503,10 +612,44 @@ window.AuthnDevice = (function (localURL) {
 			}
 		}
 
+		console.log("FINAL USER ID TYPE:", userId.constructor.name);
+		console.log("FINAL USER ID LENGTH:", userId.byteLength);
+		console.log(
+			"FINAL USER ID HEX:",
+			Array.from(userId)
+			.map(b => b.toString(16).padStart(2, "0"))
+			.join("")
+		);
+
 		// Prepare new key
 		await this._cred_init(rpid, userId, null, keyPairAlg);
+
+		console.log("CREATE KEY STATE:", {
+			credential_id: window.authnTools.uint8ArrayToBase64url(new Uint8Array(this.credential_id)),
+					rp_id: this.rp_id,
+					private_key: this.private_key,
+						public_key: this.public_key,
+							cose_key: this.cose_key
+		});
+
+		// Determine whether to save as a discoverable (resident) credential
+		const resident = options.publicKey.authenticatorSelection?.residentKey;
+
+		const shouldSave =
+		requestResidentKey ||
+		resident === "preferred" ||
+		resident === "required";
+
+		console.log("CREATE:", {
+			rpid: rpid,
+			requireResidentKey: requestResidentKey,
+			residentKey: resident,
+			shouldSave: shouldSave,
+			selection: options.publicKey.authenticatorSelection
+		});
+
 		// Save resident key
-		if (requestResidentKey) await this._saveResidentKey(rpid);
+		if (shouldSave) await this._saveResidentKey(rpid);
 
 		// Get credential id
 		let credential_id = new Uint8Array(this.credential_id);
@@ -526,12 +669,15 @@ window.AuthnDevice = (function (localURL) {
 			'type': 'webauthn.create',
 			'challenge': window.authnTools.uint8ArrayToBase64url(challenge),
 			'origin': origin,
-			'crossOrigin': false,
-			'authenticator': 'WebAuthnLinux Fingerprint Bridge'
+			'crossOrigin': false
 		}
 		//console.log(client_data);
 		client_data = JSON.stringify(client_data);
 		client_data = new TextEncoder().encode(client_data);
+
+		console.log("CREATED CREDENTIAL ID:",
+					window.authnTools.uint8ArrayToBase64url(this.credential_id)
+		);
 
 		// hash the message
 		let rp_id_hash = new Uint8Array(await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(this.rp_id)));
@@ -540,6 +686,17 @@ window.AuthnDevice = (function (localURL) {
 		let credential_id_length = window.authnTools.intToUint8Array(credential_id.length, 2, true);
 		let cose_key = new Uint8Array(window.CBOR.encode(this.cose_key));
 		let authData = this._concatUint8Arrays(rp_id_hash, flags, sign_count, this._getAAGUID(), credential_id_length, credential_id, cose_key);
+
+		console.log("CREATE AUTH DATA LENGTH:", authData.length);
+		console.log("CREATE AAGUID:", this._getAAGUID());
+		console.log("CREATE FLAGS:", flags);
+		console.log("CREATE COSE KEY:", cose_key);
+		console.log(
+			"CREATE COSE KEY HEX:",
+			Array.from(cose_key)
+			.map(b => (b & 0xff).toString(16).padStart(2,'0'))
+			.join('')
+		);
 
 		// Attestation object
 		let attestation_object = {
@@ -553,7 +710,7 @@ window.AuthnDevice = (function (localURL) {
 			// Generate signature
 			let client_data_hash = new Uint8Array(await crypto.subtle.digest('SHA-256', client_data));
 			let signatureData = this._concatUint8Arrays(authData, client_data_hash);
-			let signature = await Algorithms.Sign(this.private_key, signatureData);
+			let signature = await Algorithms.Sign(this.private_key, signatureData, this.public_key);
 
 			//let signature = await crypto.subtle.sign({name: 'ECDSA', hash: 'SHA-256'}, this.private_key, signatureData);
 			// Convert signature
@@ -699,8 +856,61 @@ window.AuthnDevice = (function (localURL) {
 		// Generate Authenticator Data
 		let rp_id_hash = new Uint8Array(await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(this.rp_id)));
 		let flags = new Uint8Array([this._flags({ uv: true, up: true })]);
-		let sign_count = window.authnTools.intToUint8Array(this._getSignCount(), 4, true);
+		let currentSignCount = this._getSignCount();
+		let sign_count = window.authnTools.intToUint8Array(currentSignCount,4,true);
 		let authData = this._concatUint8Arrays(rp_id_hash, flags, sign_count);
+
+		console.log("AUTH DATA:", {
+			rpIdHash: window.authnTools.uint8ArrayToBase64url(rp_id_hash),
+					flags: flags[0].toString(16),
+					signCount: this._getSignCount(),
+					authData: window.authnTools.uint8ArrayToBase64url(authData)
+		});
+
+		// Update credential management metadata
+		if (this.currentCredential) {
+
+			this.currentCredential.signCount = currentSignCount;
+			this.currentCredential.lastUsed = Date.now();
+
+			if (this.handleStorage) {
+				await this.handleStorage(this.storage);
+			}
+		}
+
+		let expectedRpIdHash = await crypto.subtle.digest(
+			"SHA-256",
+			new TextEncoder().encode(rpid)
+		);
+
+		let actualRpIdHash = window.authnTools.uint8ArrayToBase64url(
+			authData.slice(0,32)
+		);
+
+		let expectedRpIdHash64 = window.authnTools.uint8ArrayToBase64url(
+			new Uint8Array(expectedRpIdHash)
+		);
+
+		console.log("RP ID HASH CHECK:", {
+			rpId: rpid,
+			credentialRpId: this.rp_id,
+			authDataRpIdHash: actualRpIdHash,
+			expectedRpIdHash: expectedRpIdHash64,
+			match: actualRpIdHash === expectedRpIdHash64
+		});
+
+		console.log("ASSERTION STATE:", {
+			requestedRpId: rpid,
+			credentialRpId: this.rp_id,
+			userHandleLength: this.user_handle?.length,
+			signCount: currentSignCount
+		});
+
+		console.log("ASSERTION USER HANDLE:",
+					this.user_handle
+					? window.authnTools.uint8ArrayToBase64url(new Uint8Array(this.user_handle))
+					: null
+		);
 
 		// Testing: Relay Party ID
 		if (this.testing.relayPartyID) {
@@ -723,16 +933,117 @@ window.AuthnDevice = (function (localURL) {
 			'type': 'webauthn.get',
 			'challenge': window.authnTools.uint8ArrayToBase64url(challenge),
 			'origin': origin,
-			'crossOrigin': false,
-			'authenticator': 'WebAuthnLinux Fingerprint Bridge'
+			'crossOrigin': false
 		}
 		client_data = JSON.stringify(client_data);
 		client_data = new TextEncoder().encode(client_data);
 
+		console.log("CLIENT DATA:",
+					new TextDecoder().decode(client_data)
+		);
+
 		// Generate signature
 		let client_data_hash = new Uint8Array(await crypto.subtle.digest('SHA-256', client_data));
 		let signatureData = this._concatUint8Arrays(authData, client_data_hash);
-		let signature = await Algorithms.Sign(this.private_key, signatureData);
+
+		console.log("SIGNATURE DATA LENGTH:", signatureData.length);
+
+		// ---------------------------------------------------------------------
+		// ASSERTION INPUTS
+		// ---------------------------------------------------------------------
+
+		console.log("ASSERTION STATE:", {
+			rpId: rpid,
+			credentialId: window.authnTools.uint8ArrayToBase64url(credential_id),
+					userHandleLength: this.user_handle.length,
+					signCount: new DataView(authData.buffer).getUint32(33),
+					flags: authData[32]
+		});
+
+		// ---------------------------------------------------------------------
+		// KEY MATERIAL
+		// ---------------------------------------------------------------------
+
+		let jwkPub = await crypto.subtle.exportKey("jwk", this.public_key);
+
+		console.log("PUBLIC KEY (JWK):", jwkPub);
+
+		console.log("COSE KEY:", {
+			x: window.authnTools.uint8ArrayToBase64url(this.cose_key.get(-2)),
+					y: window.authnTools.uint8ArrayToBase64url(this.cose_key.get(-3))
+		});
+
+		let cose_key = new Uint8Array(window.CBOR.encode(this.cose_key));
+
+		console.log("COSE KEY HEX:", Array.from(cose_key)
+		.map(b => b.toString(16).padStart(2, '0'))
+		.join(''));
+
+		console.log("KEY OBJECTS:", {
+			privateKeyType: this.private_key?.constructor?.name,
+				publicKeyType: this.public_key?.constructor?.name,
+					algorithm: this.private_key.algorithm,
+					extractable: this.private_key.extractable,
+					usages: this.private_key.usages
+		});
+
+		let restoredPublic = await Algorithms.CryptoKey2COSEKey(this.public_key);
+
+		console.log("RESTORED PUBLIC COSE:", {
+			x: window.authnTools.uint8ArrayToBase64url(restoredPublic.get(-2)),
+					y: window.authnTools.uint8ArrayToBase64url(restoredPublic.get(-3))
+		});
+
+		console.log("STORED COSE:", {
+			x: window.authnTools.uint8ArrayToBase64url(this.cose_key.get(-2)),
+					y: window.authnTools.uint8ArrayToBase64url(this.cose_key.get(-3))
+		});
+
+		// ---------------------------------------------------------------------
+		// SIGNING
+		// ---------------------------------------------------------------------
+
+		let signature = await Algorithms.Sign(this.private_key,signatureData,this.public_key);
+
+		console.log("SIGNATURE:", {
+			length: signature.byteLength,
+			hex: Array.from(signature)
+			.map(b => b.toString(16).padStart(2, '0'))
+			.join('')
+		});
+
+		// ---------------------------------------------------------------------
+		// ASSERTION SUMMARY
+		// ---------------------------------------------------------------------
+
+		console.log("ASSERTION CREATED:", {
+			credentialId: window.authnTools.uint8ArrayToBase64url(credential_id),
+					authDataLength: authData.byteLength,
+					clientDataLength: client_data.byteLength,
+					signatureLength: signature.byteLength
+		});
+
+		// ---------------------------------------------------------------------
+		// ASSERTION DATA
+		// ---------------------------------------------------------------------
+
+		console.log("AUTHDATA HEX:",
+					Array.from(authData)
+					.map(b => b.toString(16).padStart(2,'0'))
+					.join('')
+		);
+
+		console.log("CLIENT HASH HEX:",
+					Array.from(client_data_hash)
+					.map(b => b.toString(16).padStart(2,'0'))
+					.join('')
+		);
+
+		console.log("SIGNATURE DATA HEX:",
+					Array.from(signatureData)
+					.map(b => b.toString(16).padStart(2,'0'))
+					.join('')
+		);
 		//let signature = await crypto.subtle.sign({name: 'ECDSA', hash: 'SHA-256'}, this.private_key, signatureData);
 		// Convert signature
 		//signature = ans1.parseSignatureECDSA(signature);
@@ -740,15 +1051,84 @@ window.AuthnDevice = (function (localURL) {
 		// Clear master key if not needed
 		if (this.askmasterkey) this.clearMasterKey();
 
+
+		console.log("RETURNING CREDENTIAL");
+
+		console.log({
+			id: credential_id.byteLength,
+			rawId: credential_id.byteLength,
+			authData: authData.buffer.slice(authData.byteOffset,authData.byteOffset + authData.byteLength).byteLength,
+			signature: signature.buffer.slice(signature.byteOffset,signature.byteOffset + signature.byteLength).byteLength,
+			userHandle: this.user_handle ? this.user_handle.byteLength : null
+		});
+
+		console.log("AUTH DATA TYPE:", authData.constructor.name);
+
+		console.log(
+			"USER HANDLE TYPE:",
+			this.user_handle ? this.user_handle.constructor.name : "null"
+		);
+
+		if (this.user_handle) {
+			console.log(
+				"USER HANDLE HEX:",
+			   Array.from(this.user_handle)
+			   .map(b => b.toString(16).padStart(2,'0'))
+			   .join('')
+			);
+		}
+
+		console.log(
+			"RAWID HEX:",
+			Array.from(credential_id)
+			.map(b => b.toString(16).padStart(2,'0'))
+			.join('')
+		);
+
+		console.log("RESPONSE TYPES:", {
+			authData: authData.constructor.name,
+			signature: signature.constructor.name,
+			userHandle: this.user_handle ? this.user_handle.constructor.name : "null"
+		});
+
+		console.log("ASSERTION CREATED:", {
+			credentialId: this.credential_id ?
+			window.authnTools.uint8ArrayToBase64url(this.credential_id)
+			: null,
+			authDataLength: authData.length,
+			signatureLength: signature.length,
+			clientDataLength: client_data.length
+		});
+
+
+		console.log("FINAL ASSERTION CREDENTIAL CHECK", {
+			credential_id: this.credential_id ?
+			window.authnTools.uint8ArrayToBase64url(this.credential_id)
+			: null,
+			length: this.credential_id?.byteLength
+		});
+
+		console.log("FINAL credential_id DEBUG:", {
+			value: this.credential_id,
+			type: typeof this.credential_id,
+			constructor: this.credential_id?.constructor?.name,
+			hasBuffer: !!this.credential_id?.buffer
+		});
+
 		// Return Credentials
 		return new (VirtualPublicKeyCredential())({
-			'id': window.authnTools.uint8ArrayToBase64url(credential_id),
-			'rawId': credential_id.buffer.slice(0),
+			'id': window.authnTools.uint8ArrayToBase64url(this.credential_id),
+			'rawId': this.credential_id instanceof ArrayBuffer
+				? this.credential_id
+				: this.credential_id.buffer.slice(
+				this.credential_id.byteOffset,
+				this.credential_id.byteOffset + this.credential_id.byteLength
+			),
 			'response': {
-				'authenticatorData': authData.buffer,
-				'userHandle': this.user_handle.buffer,
-				'signature': signature.buffer,
-				'clientDataJSON': client_data.buffer,
+				'authenticatorData': authData.buffer.slice(authData.byteOffset,authData.byteOffset + authData.byteLength),
+				'userHandle': this.user_handle.buffer.slice(this.user_handle.byteOffset,this.user_handle.byteOffset + this.user_handle.byteLength),
+				'signature': signature.buffer.slice(signature.byteOffset,signature.byteOffset + signature.byteLength),
+				'clientDataJSON': client_data.buffer.slice(client_data.byteOffset,client_data.byteOffset + client_data.byteLength),
 			},
 			'type': 'public-key',
 
@@ -1011,13 +1391,96 @@ window.AuthnDevice = (function (localURL) {
 			return params.filter(param => (param.type == 'public-key' && algs.includes(param.alg)));
 		},
 
-		Sign: async function (private_key, data) {
+		Sign: async function (private_key, data, public_key) {
 			let type = private_key.algorithm;
 
+			console.log("SIGN INPUT:", {
+				type: Object.prototype.toString.call(data),
+						length: data?.byteLength,
+						isArrayBuffer: data instanceof ArrayBuffer,
+						isUint8Array: data instanceof Uint8Array,
+						hex: data ? Array.from(new Uint8Array(data))
+						.map(b => b.toString(16).padStart(2, '0'))
+						.join('')
+						: null
+			});
+
+			console.log("SIGNING KEY:", {
+				type: private_key?.type,
+				algorithm: private_key?.algorithm,
+				usages: private_key?.usages,
+				extractable: private_key?.extractable,
+				constructor: private_key?.constructor?.name
+			});
+
+			console.log("PUBLIC KEY:", {
+				type: public_key?.type,
+				algorithm: public_key?.algorithm,
+				usages: public_key?.usages,
+				constructor: public_key?.constructor?.name
+			});
+
 			if (type.name == 'ECDSA') {
-				let signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, private_key, data);
-				signature = ans1.parseSignatureECDSA(signature);
-				return signature;
+
+				let rawSignature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, private_key, data);
+
+				console.log("SIGNING CONTEXT:", {
+					algorithm: type.name,
+					curve: type.namedCurve || "unknown",
+					hashUsedForSign: "SHA-256",
+					privateKeyType: private_key?.constructor?.name,
+						publicKeyType: public_key?.constructor?.name
+				});
+
+				// This is the native WebCrypto ECDSA format:
+				// 64 bytes = r (32) + s (32)
+				let sigBytes = new Uint8Array(rawSignature);
+
+				console.log("RAW ECDSA SIGNATURE:", {
+					length: sigBytes.length,
+					format: "P1363 r||s",
+						hex: Array.from(sigBytes)
+						.map(b => b.toString(16).padStart(2,'0'))
+						.join('')
+				});
+
+				// Convert WebCrypto P1363 (r||s) signature to ASN.1 DER ECDSA signature
+				let derSignature;
+
+				try {
+					derSignature = ans1.parseSignatureECDSA(sigBytes);
+
+				}
+				catch(e) {
+					console.log("DER CONVERSION FAILED:", e);
+					throw e;
+				}
+
+				console.log("DER CONVERSION OK:", {
+					length: derSignature.length,
+					firstByte: derSignature[0].toString(16)
+				});
+
+
+				console.log("SIGNATURE FORMAT: Converted P1363 → DER");
+
+
+				console.log("FINAL SIGNATURE:", {
+					length: derSignature.byteLength,
+					hex: Array.from(derSignature)
+					.map(b => b.toString(16).padStart(2,'0'))
+					.join('')
+				});
+
+
+				console.log("SIGNATURE RETURN:", {
+					length: derSignature.length,
+					firstByte: derSignature[0].toString(16),
+							der: derSignature[0] === 0x30
+				});
+
+
+				return derSignature;
 			}
 			else if (type.name == 'RSA-PSS') {
 				// ToDo Check

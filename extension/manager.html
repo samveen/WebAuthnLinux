@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+	<title>Manage Credentials</title>
+
+	<link rel="stylesheet" href="manager.css">
+	</head>
+
+	<body>
+
+	<header class="header">
+	<h1>Manage Credentials</h1>
+
+	<div class="header-actions">
+	<button id="refreshButton" title="Refresh credentials">
+	↻
+	</button>
+	</div>
+	</header>
+
+
+	<section class="toolbar">
+
+	<input
+	type="search"
+	id="searchBox"
+	placeholder="Search credentials..."
+	autocomplete="off">
+
+	</section>
+
+
+	<main id="credentialList" class="credential-list">
+
+	<!-- Credential cards inserted here by manager.js -->
+
+	<div class="empty-message" id="emptyMessage">
+	No credentials found.
+	</div>
+
+	</main>
+
+
+	<footer class="footer">
+
+	<span>
+	WebAuthnLinux Credential Manager
+	</span>
+
+	</footer>
+
+
+	<!-- Delete confirmation dialog -->
+
+	<div id="deleteDialog" class="dialog hidden">
+
+	<div class="dialog-box">
+
+	<h2>Delete Credential?</h2>
+
+	<p id="deleteMessage">
+	This credential will be permanently removed.
+	</p>
+
+	<div class="dialog-buttons">
+
+	<button id="cancelDelete">
+	Cancel
+	</button>
+
+	<button id="confirmDelete" class="danger">
+	Delete
+	</button>
+
+	</div>
+
+	</div>
+
+	</div>
+
+<dialog id="renameDialog">
+
+    <form method="dialog">
+
+    <label>
+    Edit Credential Label:
+		<input id="renameInput" type="text">
+		</label>
+
+		<br><br>
+
+		<button value="cancel">
+		Cancel
+		</button>
+
+		<button id="renameOK" value="ok">
+		Rename
+		</button>
+
+		</form>
+
+		</dialog>
+
+	<script src="manager.js"></script>
+
+	</body>
+
+	</html>

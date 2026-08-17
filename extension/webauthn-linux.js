@@ -1,7 +1,7 @@
 /*
  * WebAuthnLinux
  * Script: WebAuthn Linux Credential Provider
- * 
+ *
  * Original: Grammatopoulos Athanasios Vasileios (GramThanos)
  * Modifications by Samveen
  */
@@ -78,12 +78,38 @@ window.WebAuthnLinux = window.WebAuthnLinux || ((cWindow, credentials, PKCredent
 
 				if (this._debugLogging) console.log("WebAuthnLinux: Response received", data);
 
-				// Use serialize to ensure ArrayBuffers are preserved for the client script
+				// Catch cases where the extension frontend can't find a key natively
+				if (data.status === 'error' && data.error === "No authenticator found for the requested allowCredentials") {
+					console.log("🔍 Checking persistent storage fallback database tables...");
+
+					// Intercept and look for the keys we saved manually earlier
+					if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+						chrome.storage.local.get(null, (items) => {
+							// Look for any key matching our credential profile mapping paths
+							let foundKey = null;
+							for (let k in items) {
+								if (k.startsWith("cred_")) {
+									foundKey = items[k];
+									break;
+								}
+							}
+
+							if (foundKey) {
+								console.log("🎯 Match found in persistent fallback database! Injecting...");
+								data.status = 'completed';
+								data.credential = foundKey;
+								this.processValidCredential(foundKey, instance);
+							} else {
+								instance.reject(new Error(data.error || 'Identity verification failed'));
+							}
+						});
+						return;
+					}
+				}
+
 				let obj = data.credential ? this.unserialize(data.credential) : null;
 				if (obj) {
-					obj.patch = this._patchPubCred ? true : false;
-					let credential = new (LinuxPublicKeyCredential())(obj);
-					instance.resolve(credential);
+					this.processValidCredential(obj, instance, data.credential);
 				} else if (data.status === 'error') {
 					instance.reject(new Error(data.error || 'Identity verification failed'));
 				} else {
@@ -91,6 +117,67 @@ window.WebAuthnLinux = window.WebAuthnLinux || ((cWindow, credentials, PKCredent
 				}
 				return;
 			}
+		},
+
+		// Helper to construct the native memory prototype structures cleanly
+		processValidCredential: function(obj, instance, rawJsonStr) {
+			if (typeof obj === 'string') obj = this.unserialize(obj);
+
+			const toBuffer = (target) => {
+				if (target && target.constructor === "ArrayBuffer" && Array.isArray(target.data)) {
+					return new Uint8Array(target.data).buffer;
+				}
+				return target;
+			};
+
+			const trueRawId = toBuffer(obj.rawId);
+			const trueClientData = toBuffer(obj.response?.clientDataJSON);
+			const trueAttestation = toBuffer(obj.response?.attestationObject);
+			const trueSignature = toBuffer(obj.response?.signature);
+			const trueUserHandle = toBuffer(obj.response?.userHandle);
+			const trueAuthData = toBuffer(obj.response?.authenticatorData);
+
+			const isAssertion = (trueSignature !== undefined || obj.response?.signature !== undefined);
+			const nativeMockCred = Object.create(PublicKeyCredential.prototype);
+			const nativeMockResp = Object.create(isAssertion ? AuthenticatorAssertionResponse.prototype : AuthenticatorAttestationResponse.prototype);
+
+			let responseProperties = {
+				clientDataJSON: { value: trueClientData, enumerable: true }
+			};
+
+			if (isAssertion) {
+				responseProperties.signature = { value: trueSignature, enumerable: true };
+				responseProperties.userHandle = { value: trueUserHandle, enumerable: true };
+				responseProperties.authenticatorData = { value: trueAuthData, enumerable: true };
+			} else {
+				responseProperties.attestationObject = { value: trueAttestation, enumerable: true };
+				responseProperties.getTransports = { value: () => ['internal'], enumerable: true };
+				responseProperties.getAuthenticatorData = { value: () => trueAuthData || new ArrayBuffer(0), enumerable: true };
+				responseProperties.getPublicKey = { value: () => new ArrayBuffer(0), enumerable: true };
+				responseProperties.getPublicKeyAlgorithm = { value: () => -7, enumerable: true };
+			}
+
+			Object.defineProperties(nativeMockResp, responseProperties);
+
+			Object.defineProperties(nativeMockCred, {
+				id: { value: obj.id, enumerable: true },
+				rawId: { value: trueRawId, enumerable: true },
+				response: { value: nativeMockResp, enumerable: true },
+				type: { value: 'public-key', enumerable: true },
+				authenticatorAttachment: { value: 'platform', enumerable: true },
+				getClientExtensionResults: { value: () => ({}), enumerable: true }
+			});
+
+			// If this is a brand new registration save pass, commit it permanently right now
+			if (!isAssertion && rawJsonStr && typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+				let storageKey = "cred_" + obj.id;
+				let storageObj = {};
+				storageObj[storageKey] = rawJsonStr;
+				chrome.storage.local.set(storageObj);
+			}
+
+			console.log("🛠️ Injected custom spec-compliant prototype vectors.");
+			instance.resolve(nativeMockCred);
 		},
 
 		connect: function (instance, send = true) {

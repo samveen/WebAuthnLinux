@@ -13,16 +13,16 @@ window.authnTools = window.authnTools || {};
 const initAuthenticator = async () => {
     const authenticator = new window.AuthnDevice();
     // Override storage handler to use chrome.storage.local
-    authenticator.handleStorage = function (data) {
-        if (data) {
+    authenticator.handleStorage = async function (data = null) {
+        if (data !== null) {
             // Save mode - return a promise or handle async
-            return new Promise((resolve, reject) => {
-                chrome.storage.local.set({ 'system_credentials': data }, () => {
-                    console.log('Credentials saved to local storage');
-                    resolve(data);
-                });
-            });
+            await chrome.storage.local.set({ 'system_credentials': data }
+            );
+            console.log('Credentials saved to local storage');
+            return data;
         } else {
+            //const result = await chrome.storage.local.get('system_credentials');
+            //return result.system_credentials || [];
             return this.storage;
         }
     };
@@ -61,6 +61,7 @@ const initAuthenticator = async () => {
     authenticator.legacyMasterkeySalt = legacySalt.buffer;
     console.log('[Auth] Legacy salt fallback initialized (16 zeros).');
 
+    // authenticator.storage = result.system_credentials || [];
     if (result.system_credentials) authenticator.storage = result.system_credentials;
     authenticator.debugLogging = result['option@debugLogging'] === true;
     return authenticator;
@@ -142,9 +143,12 @@ const handleMessage = async (request, sender, sendResponse) => {
                 // So we need to manually ensure we save "authenticator.storage" if it changed?
                 // UNLESS we explicit save here.
 
-                debugLog('[Auth] Manually ensuring storage save...');
-                await new Promise(r => chrome.storage.local.set({ 'system_credentials': deviceInstance.storage }, r));
-                debugLog('[Auth] Manual save complete.');
+                if (deviceInstance.storage) {
+                    debugLog('[Auth] Manually ensuring storage save...');
+                    await new Promise(r => chrome.storage.local.set({ 'system_credentials': deviceInstance.storage }, r));
+                    debugLog('[Auth] Manual save complete.');
+                }
+
             } else if (request.type === 'get' || request.authn === 'get') {
                 debugLog('[Auth] Get Options (Raw):', request.options);
 
