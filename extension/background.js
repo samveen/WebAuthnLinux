@@ -36,7 +36,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 console.log("PARSED CREDENTIAL:", credential);
             } catch (e) {
                 console.error("FAILED TO PARSE CREDENTIAL:", e);
-            }
+                }
         }
 
         //
@@ -116,7 +116,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             // Clear pending request after completion?
             // Maybe wait a bit or clear it now. Let's clear it to be clean.
             // Clear request after completion
-            pendingRequest = null;
+        pendingRequest = null;
         } else {
             // Do not fallback to active tab.
             // The active tab may not be the tab that initiated WebAuthn.
@@ -134,16 +134,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             pendingRequest.requestingTabId = sender.tab.id;
         }
 
-        // Open the authenticator popup
-        chrome.windows.create({
-            url: "authenticator.html",
-            type: "popup",
-            width: 400,
-            height: 600,
-            focused: true
-        }, (window) => {
-            if(window)
-                popupWindowId = window.id;
+        const tabId = sender.tab.id;
+        const windowId = sender.tab.windowId;
+        pendingRequest.requestingTabId = tabId;
+
+        // Point the toolbar action's popup at the request bubble, only for this tab.
+        chrome.action.setPopup({ tabId, popup: 'authenticator.html' });
+        chrome.action.setBadgeBackgroundColor({ tabId, color: '#f0a500' });
+        chrome.action.setBadgeText({ tabId, text: ' ' });
+        chrome.action.setTitle({ tabId, title: 'WebAuthnLinux: verification requested for ' + (sender.tab.url || '') });
+
+        // Open it without requiring a click (Firefox 149+; falls back to
+        // requiring the user to click the toolbar icon on older Firefox).
+        chrome.action.openPopup({ windowId }).catch((e) => {
+            console.warn('WebAuthnLinux: openPopup() failed - user must click the toolbar icon manually.', e);
         });
 
         sendResponse({ started: true });
