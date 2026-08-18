@@ -2,13 +2,17 @@
  *  WebAuthnLinux Extension Authenticator Logic
  *
  * Original: Grammatopoulos Athanasios Vasileios (GramThanos)
- * Modifications by Samveen
+ * Modifications by (see contributors)
  */
 const BUILD_VERSION = "0.9.10";
 console.log(`[Auth] Loaded WebAuthnLinux. Version: ${BUILD_VERSION}`);
 
 // Polyfill
 window.authnTools = window.authnTools || {};
+
+const statusEl = document.getElementById('status');
+const iconEl = document.getElementById('icon');
+const retryBtn = document.getElementById('retry-btn');
 
 const initAuthenticator = async () => {
     const authenticator = new window.AuthnDevice();
@@ -21,8 +25,6 @@ const initAuthenticator = async () => {
             console.log('Credentials saved to local storage');
             return data;
         } else {
-            //const result = await chrome.storage.local.get('system_credentials');
-            //return result.system_credentials || [];
             return this.storage;
         }
     };
@@ -76,14 +78,12 @@ const debugLog = (message, ...args) => {
 // NATIVE MESSAGING INTEGRATION
 // Instead of navigator.credentials, we talk to the native python host
 const getMasterKeyFromNativeHost = async () => {
-    const statusDiv = document.getElementById('status');
-    statusDiv.textContent = "Connecting to System Fingerprint Service...";
     console.log('[Auth] Connecting to Fingerprint Service: io.github.samveen.webauthnlinux');
 
     return new Promise((resolve, reject) => {
         try {
-            // "webauthnlinux@samveen.github.io" must be allowed in the host manifest
-            // Host name defined in install.sh is "io.github.samveen.webauthnlinux"
+            // Host name defined in install.sh (must match exactly, and must
+            // be listed in that host's "allowed_extensions" manifest entry)
             const hostName = "io.github.samveen.webauthnlinux";
 
             // Send unlock command
@@ -98,14 +98,13 @@ const getMasterKeyFromNativeHost = async () => {
                 debugLog('[Auth] Native Response:', response);
 
                 if (response && response.status === "success" && response.key) {
-                    statusDiv.textContent = "Fingerprint Verified (Native).";
+                    statusEl.textContent = "Fingerprint verified.";
                     resolve("NativeSecure-" + response.key);
                 } else {
                     const msg = response ? response.message : "Unknown Error";
                     reject(new Error("Fingerprint Failed: " + msg));
                 }
             });
-
         } catch (e) {
             reject(e);
         }
@@ -114,26 +113,92 @@ const getMasterKeyFromNativeHost = async () => {
 
 let deviceInstance = null;
 
-const handleMessage = async (request, sender, sendResponse) => {
+const MAX_ATTEMPTS = 5;
+const RETRY_DELAY_MS = 500;
+const DEVICE_BUSY_RETRY_DELAY_MS = 10000;
+let countdownTimer = null;
 
-    const processRequest = async () => {
-        // ... (unchanged logic for WebAuthn processing) ...
+const clearCountdown = () => {
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+};
+
+// fprintd reports this when the device is still claimed by another process
+// (a lingering session, a stuck previous read, etc). Retrying immediately
+// just fails again in a tight loop, so this case gets a longer backoff.
+const isNoMatchError = (message) => /no-match/i.test(message || '');
+
+// fprintd reports this when the device is still claimed by another process
+// (a lingering session, a stuck previous read, etc). Retrying immediately
+// just fails again in a tight loop, so this case gets a longer backoff.
+const isDeviceBusyError = (message) => /AlreadyInUse|already claimed/i.test(message || '');
+
+// Waits delayMs, updating statusEl with a live countdown, e.g. "No match - retrying in 2..."
+const countdown = (message, delayMs = RETRY_DELAY_MS) => new Promise((resolve) => {
+    let msLeft = delayMs;
+    statusEl.classList.add('error');
+    console.log(message);
+    statusEl.textContent = "${message} - Retrying...";
+    countdownTimer = setInterval(() => {
+        msLeft -= 100;
+        let secondsLeft = Math.ceil(msLeft / 1000);
+        if (secondsLeft > 0) {
+            statusEl.textContent = `${message} - Retring in ${secondsLeft}...`;
+        } else {
+            statusEl.textContent = "${message} - Retrying...";
+            clearCountdown();
+            resolve();
+        }
+    }, 100);
+});
+
+// Retries the fingerprint read itself (no match, timeout, sensor error, etc.)
+// up to MAX_ATTEMPTS times. Does NOT retry failures that happen after a
+// successful fingerprint read (those are WebAuthn/logic errors, not
+// fingerprint errors, and retrying the finger won't fix them).
+const unlockWithRetry = async () => {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+        clearCountdown();
+        retryBtn.style.display = 'none';
+        statusEl.classList.remove('error');
+        iconEl.classList.add('pulse');
+        statusEl.textContent = attempt === 1
+            ? "Touch the fingerprint reader..."
+            : `Touch the fingerprint reader... (attempt ${attempt}/${MAX_ATTEMPTS})`;
+
         try {
-            let result;
-            if (request.type === 'create' || request.authn === 'create') {
-                debugLog('[Auth] Create Options (Raw):', request.options);
+            return await getMasterKeyFromNativeHost();
+        } catch (e) {
+            iconEl.classList.remove('pulse');
+            console.warn(`[Auth] Fingerprint attempt ${attempt}/${MAX_ATTEMPTS} failed:`, e);
+            if (attempt === MAX_ATTEMPTS) throw e;
+            const noMatch = isNoMatchError(e.message);
+            const busy = isDeviceBusyError(e.message);
+            var message = e.message;
+            if (noMatch) message = 'No match';
+            if (busy) message = 'Fingerprint device busy';
+            await countdown(message, busy ? DEVICE_BUSY_RETRY_DELAY_MS : RETRY_DELAY_MS);
+        }
+    }
+};
 
-                let opts = request.options;
+const processRequest = async (request) => {
+    // ... (unchanged logic for WebAuthn processing) ...
+    try {
+        let result;
+        if (request.type === 'create' || request.authn === 'create') {
+            debugLog('[Auth] Create Options (Raw):', request.options);
+
+            let opts = request.options;
                 // Parse if string to ensure we check structure of object, not string properties
-                if (typeof opts === 'string') {
-                    try { opts = JSON.parse(opts); } catch (e) { console.error("JSON parse error:", e); }
-                }
+            if (typeof opts === 'string') {
+                try { opts = JSON.parse(opts); } catch (e) { console.error("JSON parse error:", e); }
+            }
 
-                if (!opts.publicKey) opts = { publicKey: opts };
+            if (!opts.publicKey) opts = { publicKey: opts };
 
-                const deserializedOptions = window.authnTools.unserialize(JSON.stringify(opts));
-                debugLog('[Auth] Create Options (Deserialized):', deserializedOptions);
-                result = await deviceInstance.create(deserializedOptions, request.url);
+            const deserializedOptions = window.authnTools.unserialize(JSON.stringify(opts));
+            debugLog('[Auth] Create Options (Deserialized):', deserializedOptions);
+            result = await deviceInstance.create(deserializedOptions, request.url);
 
                 // If create triggered a storage save, it might have returned a promise (if logic inside create awaits handleStorage)
                 // But deviceInstance.create inside webauthn-authenticator.js awaits handleStorage ONLY if it was async.
@@ -143,94 +208,92 @@ const handleMessage = async (request, sender, sendResponse) => {
                 // So we need to manually ensure we save "authenticator.storage" if it changed?
                 // UNLESS we explicit save here.
 
-                if (deviceInstance.storage) {
-                    debugLog('[Auth] Manually ensuring storage save...');
-                    await new Promise(r => chrome.storage.local.set({ 'system_credentials': deviceInstance.storage }, r));
-                    debugLog('[Auth] Manual save complete.');
-                }
-
-            } else if (request.type === 'get' || request.authn === 'get') {
-                debugLog('[Auth] Get Options (Raw):', request.options);
-
-                let opts = request.options;
-                if (typeof opts === 'string') {
-                    try { opts = JSON.parse(opts); } catch (e) { console.error("JSON parse error:", e); }
-                }
-
-                if (!opts.publicKey) opts = { publicKey: opts };
-
-                const deserializedOptions = window.authnTools.unserialize(JSON.stringify(opts));
-                debugLog('[Auth] Get Options (Deserialized):', deserializedOptions);
-                debugLog('[Auth] Current Storage:', deviceInstance.storage);
-                result = await deviceInstance.get(deserializedOptions, request.url);
+            if (deviceInstance.storage) {
+                debugLog('[Auth] Manually ensuring storage save...');
+                await new Promise(r => chrome.storage.local.set({ 'system_credentials': deviceInstance.storage }, r));
+                debugLog('[Auth] Manual save complete.');
             }
+        } else if (request.type === 'get' || request.authn === 'get') {
+            debugLog('[Auth] Get Options (Raw):', request.options);
 
-            if (result) {
-                const responsePayload = {
-                    id: result.id,
+            let opts = request.options;
+            if (typeof opts === 'string') {
+                try { opts = JSON.parse(opts); } catch (e) { console.error("JSON parse error:", e); }
+            }
+            if (!opts.publicKey) opts = { publicKey: opts };
+
+            const deserializedOptions = window.authnTools.unserialize(JSON.stringify(opts));
+            debugLog('[Auth] Get Options (Deserialized):', deserializedOptions);
+            debugLog('[Auth] Current Storage:', deviceInstance.storage);
+            result = await deviceInstance.get(deserializedOptions, request.url);
+        }
+
+        if (result) {
+            const responsePayload = {
+                id: result.id,
                     // Use serialize to ensure ArrayBuffers are preserved for the client script
-                    rawId: JSON.parse(window.authnTools.serialize(result.rawId)),
-                    response: { clientDataJSON: JSON.parse(window.authnTools.serialize(result.response.clientDataJSON)) },
-                    type: result.type,
-                    getClientExtensionResults: result.getClientExtensionResults()
-                };
-                if (result.response.attestationObject) responsePayload.response.attestationObject = JSON.parse(window.authnTools.serialize(result.response.attestationObject));
-                if (result.response.authenticatorData) responsePayload.response.authenticatorData = JSON.parse(window.authnTools.serialize(result.response.authenticatorData));
-                if (result.response.signature) responsePayload.response.signature = JSON.parse(window.authnTools.serialize(result.response.signature));
-                if (result.response.userHandle) responsePayload.response.userHandle = JSON.parse(window.authnTools.serialize(result.response.userHandle));
+                rawId: JSON.parse(window.authnTools.serialize(result.rawId)),
+                response: { clientDataJSON: JSON.parse(window.authnTools.serialize(result.response.clientDataJSON)) },
+                type: result.type,
+                getClientExtensionResults: result.getClientExtensionResults()
+            };
+            if (result.response.attestationObject) responsePayload.response.attestationObject = JSON.parse(window.authnTools.serialize(result.response.attestationObject));
+            if (result.response.authenticatorData) responsePayload.response.authenticatorData = JSON.parse(window.authnTools.serialize(result.response.authenticatorData));
+            if (result.response.signature) responsePayload.response.signature = JSON.parse(window.authnTools.serialize(result.response.signature));
+            if (result.response.userHandle) responsePayload.response.userHandle = JSON.parse(window.authnTools.serialize(result.response.userHandle));
 
-                chrome.runtime.sendMessage({ id: request.id, status: 'completed', credential: JSON.stringify(responsePayload) });
-                document.getElementById('status').textContent = "Operation Completed.";
-                setTimeout(() => { if (window) window.close(); }, 1500);
-            }
-        } catch (e) {
-            console.error(e);
-            statusDiv.textContent = `Error: ${e.message}`;
-            statusDiv.classList.add('error');
-            chrome.runtime.sendMessage({ id: request.id, status: 'error', error: e.message });
+            chrome.runtime.sendMessage({ id: request.id, status: 'completed', credential: JSON.stringify(responsePayload) });
+            statusEl.textContent = "Verified.";
+            iconEl.classList.remove('pulse');
+            setTimeout(() => window.close(), 900);
         }
-    };
-
-    if (!deviceInstance) {
-        deviceInstance = await initAuthenticator();
+    } catch (e) {
+        console.error(e);
+        statusEl.textContent = "Error: " + e.message;
+        statusEl.classList.add('error');
+        iconEl.classList.remove('pulse');
+        retryBtn.style.display = 'block';
+        chrome.runtime.sendMessage({ id: request.id, status: 'error', error: e.message });
     }
-
-    const unlockBtn = document.getElementById('unlock-btn');
-    const statusDiv = document.getElementById('status');
-
-    statusDiv.textContent = "Authentication Required";
-    unlockBtn.style.display = "inline-block";
-
-    const newBtn = unlockBtn.cloneNode(true);
-    unlockBtn.parentNode.replaceChild(newBtn, unlockBtn);
-
-    newBtn.addEventListener('click', async () => {
-        console.log('[Auth] Unlock button clicked. Using Native Messaging.');
-        newBtn.disabled = true;
-        try {
-            const masterKey = await getMasterKeyFromNativeHost();
-
-            console.log('[Auth] Keys obtained.');
-            // deviceInstance.masterkeysalt is already set in initAuthenticator or from storage
-            deviceInstance.setMasterKey(masterKey);
-
-            newBtn.style.display = "none";
-            statusDiv.textContent = "Processing...";
-
-            await processRequest();
-
-        } catch (e) {
-            console.error('[Auth] Unlock process failed:', e);
-            statusDiv.textContent = "Error: " + e.message;
-            newBtn.disabled = false;
-        }
-    });
 };
 
+const runFlow = async (request) => {
+    if (!deviceInstance) deviceInstance = await initAuthenticator();
+    clearCountdown();
+    retryBtn.style.display = 'none';
+    statusEl.classList.remove('error');
+    try {
+        const masterKey = await unlockWithRetry();
+
+        console.log('[Auth] Keys obtained.');
+        // deviceInstance.masterkeysalt is already set in initAuthenticator or from storage
+        deviceInstance.setMasterKey(masterKey);
+        statusEl.textContent = "Verifying...";
+        iconEl.classList.remove('pulse');
+        await processRequest(request);
+    } catch (e) {
+        // Only reached once all MAX_ATTEMPTS fingerprint attempts are exhausted.
+        console.error('[Auth] Flow failed after retries:', e);
+        statusEl.textContent = `Failed after ${MAX_ATTEMPTS} attempts)`;
+        statusEl.classList.add('error');
+        iconEl.classList.remove('pulse');
+        retryBtn.style.display = 'block';
+        chrome.runtime.sendMessage({ id: request.id, status: 'error', error: e.message });
+    }
+};
+
+let lastRequest = null;
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    handleMessage(message);
+    lastRequest = message;
+    runFlow(message);
     sendResponse({ started: true });
     return true;
 });
 
+retryBtn.addEventListener('click', () => {
+    if (lastRequest) runFlow(lastRequest);
+});
+
+// Ask background.js for the pending request and start immediately - no click needed.
 chrome.runtime.sendMessage({ type: 'authenticator_ready' });
