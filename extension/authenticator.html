@@ -5,36 +5,58 @@
     <meta charset="UTF-8">
     <title>WebAuthnLinux Authenticator</title>
     <style>
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            padding: 20px;
-            text-align: center;
-        }
-
-        .status {
-            margin: 20px 0;
-            font-weight: bold;
-        }
-
-        .error {
-            color: red;
-        }
+    body {
+        width: 300px;
+        margin: 0;
+        padding: 16px;
+        font-family: system-ui, sans-serif;
+        text-align: center;
+        background: #fff;
+    }
+    .icon {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto 10px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #eef3ff;
+    }
+    .icon svg { width: 26px; height: 26px; }
+    .icon.pulse { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(66,133,244,0.35); }
+        50% { box-shadow: 0 0 0 8px rgba(66,133,244,0); }
+    }
+    h1 { font-size: 14px; margin: 0 0 4px; font-weight: 600; }
+    p#status { font-size: 12px; color: #555; margin: 0 0 12px; min-height: 16px; }
+    p#status.error { color: #c5221f; }
+    button {
+        display: none;
+        width: 100%;
+        padding: 8px;
+        border: none;
+        border-radius: 6px;
+        background: #1a73e8;
+        color: #fff;
+        font-size: 13px;
+        cursor: pointer;
+    }
     </style>
 </head>
 
 <body>
-    <h2>WebAuthnLinux Authenticator</h2>
-    <div id="status" class="status">Waiting for requests...</div>
-    <div id="action-area">
-        <button id="unlock-btn" style="display:none; padding: 10px 20px; font-size: 16px; cursor: pointer;">Unlock with
-            Fingerprint</button>
+    <div class="icon pulse" id="icon">
+        <img src="fingerprint-webauthn.svg" alt="" width="48" height="48">
     </div>
-
+    <h1 id="title">Verify it's you</h1>
+    <p id="status">Touch the fingerprint reader…</p>
+    <button id="retry-btn">Try again</button>
     <script src="js/cbor.js"></script>
     <script src="js/webauthn-tools.js"></script>
     <script src="js/falcon.js"></script>
     <script src="js/webauthn-authenticator.js"></script>
     <script src="authenticator.js"></script>
 </body>
-
 </html>
