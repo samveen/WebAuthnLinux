@@ -142,7 +142,7 @@ const countdown = (message, delayMs = RETRY_DELAY_MS) => new Promise((resolve) =
         msLeft -= 100;
         let secondsLeft = Math.ceil(msLeft / 1000);
         if (secondsLeft > 0) {
-            statusEl.textContent = `${message} - Retring in ${secondsLeft}...`;
+            statusEl.textContent = `${message} - Waiting...`;
         } else {
             statusEl.textContent = "${message} - Retrying...";
             clearCountdown();
