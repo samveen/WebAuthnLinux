@@ -776,7 +776,11 @@ window.AuthnDevice = (function (localURL) {
 			'type': 'public-key',
 
 			// Extensions
-			'getClientExtensionResults': {}
+			'getClientExtensionResults': {},
+
+			// Keep the object plain so serializing it never touches
+			// the browser's PublicKeyCredential getters
+			'patch': false
 		});
 	};
 
@@ -1133,7 +1137,11 @@ window.AuthnDevice = (function (localURL) {
 			'type': 'public-key',
 
 			// Extensions
-			'getClientExtensionResults': {}
+			'getClientExtensionResults': {},
+
+			// Keep the object plain so serializing it never touches
+			// the browser's PublicKeyCredential getters
+			'patch': false
 		});
 	};
 
